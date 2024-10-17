@@ -1,0 +1,145 @@
+To set up a Gazebo scene and launch the GoPiGo URDF model, follow these steps:
+Step 1: Create and Save a Gazebo Scene
+
+    Open Gazebo.
+    Create your desired scene using the Gazebo interface (add models, adjust layout, etc.).
+    Save the scene:
+        Go to File > Save World As...
+        Save the file as my_scene.world in your desired directory (e.g., ~/your_workspace/gazebo/worlds).
+
+Step 2: Create the Launch File
+
+    Navigate to the gpg/urdf/launch directory:
+
+    bash
+
+cd ~/your_workspace/gpg/urdf/launch
+
+Copy the existing launch file:
+
+bash
+
+cp ../gpg_remote/launch/gpg.launch.py gpg_sim.launch.py
+
+Open gpg_sim.launch.py in your text editor.
+Remove or comment out the following:
+
+    Control node
+    Image publisher node
+    GoPiGo remote broadcaster spawner
+
+Comment out the spawner objects in the nodes variable:
+
+python
+
+    # nodes = [
+    #     ...
+    # ]
+
+Step 3: Include gz_sim.launch.py
+
+    At the top of gpg_sim.launch.py, include the necessary imports:
+
+    python
+
+from launch import LaunchDescription
+from launch_ros.actions import Node
+from launch.substitutions import LaunchConfiguration
+
+Create the gz_sim.launch.py file:
+
+python
+
+    ld = LaunchDescription()
+
+    gz_args = LaunchConfiguration('gz_args', default='-r ~/your_workspace/gazebo/worlds/my_scene.world')
+
+    ld.add_action(Node(
+        package='ros_gz_sim',
+        executable='gz_sim',
+        name='gz_sim',
+        output='screen',
+        parameters=[{'gz_args': gz_args}],
+    ))
+
+Step 4: Include Robot State Publisher Launch File
+
+    Add the Robot State Publisher node in your launch file:
+
+    python
+
+    ld.add_action(Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        name='robot_state_publisher',
+        output='screen',
+        parameters=[{'use_sim_time': True}],
+        remappings=[('/robot_description', '/robot_description')],
+    ))
+
+Step 5: Add Node to Spawn the Entity
+
+    Add a Node to spawn your entity:
+
+    python
+
+    ld.add_action(Node(
+        package='gazebo_ros',
+        executable='spawn_entity.py',
+        name='spawn_gopigo',
+        output='screen',
+        arguments=['-topic', 'robot_description', '-entity', 'gopigo'],
+    ))
+
+Final Launch File Structure
+
+Your gpg_sim.launch.py should look something like this:
+
+python
+
+from launch import LaunchDescription
+from launch_ros.actions import Node
+from launch.substitutions import LaunchConfiguration
+
+def generate_launch_description():
+    ld = LaunchDescription()
+
+    gz_args = LaunchConfiguration('gz_args', default='-r ~/your_workspace/gazebo/worlds/my_scene.world')
+
+    ld.add_action(Node(
+        package='ros_gz_sim',
+        executable='gz_sim',
+        name='gz_sim',
+        output='screen',
+        parameters=[{'gz_args': gz_args}],
+    ))
+
+    ld.add_action(Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        name='robot_state_publisher',
+        output='screen',
+        parameters=[{'use_sim_time': True}],
+        remappings=[('/robot_description', '/robot_description')],
+    ))
+
+    ld.add_action(Node(
+        package='gazebo_ros',
+        executable='spawn_entity.py',
+        name='spawn_gopigo',
+        output='screen',
+        arguments=['-topic', 'robot_description', '-entity', 'gopigo'],
+    ))
+
+    return ld
+
+Step 6: Launch Your Scene
+
+    Run your launch file:
+
+    bash
+
+    ros2 launch gpg urdf/launch/gpg_sim.launch.py
+
+This should set up the Gazebo scene, spawn your GoPiGo URDF model, and start the necessary nodes. Make sure to adjust file paths and names according to your specific setup.
+

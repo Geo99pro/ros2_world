@@ -1,10 +1,12 @@
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import TwistStamped, Pose2D
+from geometry_msgs.msg import TwistStamped, Pose2D, PointStamped
 from nav_msgs.msg import Odometry
 from math import pow, atan2, sqrt
 from angles import shortest_angular_distance
 from tf_transformations import euler_from_quaternion
+import tf2_ros
+import tf2_geometry_msgs
 
 class MovePhysicalRobot(Node):
     def __init__(self):
@@ -16,8 +18,11 @@ class MovePhysicalRobot(Node):
         self.goal_pose = None
         self.current_pose = None
 
-        self.declare_parameter('linear_gain', 0.3)
+        self.declare_parameter('linear_gain', 0.2)
         self.declare_parameter('angular_gain', 0.5)
+        
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
     def goal_callback(self, msg):
         self.goal_pose = msg
@@ -31,32 +36,30 @@ class MovePhysicalRobot(Node):
         if self.goal_pose is None or self.current_pose is None:
             return 
 
-        msg = TwistStamped()
+        msg = PointStamped()
+        goal_point = PointStamped()
+        goal_point.header.frame_id = 'odom'
+        goal_point.point.x = self.goal_pose.x
+        goal_point.point.y = self.goal_pose.y
+        goal_point.point.z = 0.0
         #https://stackoverflow.com/questions/74976911/create-an-odometry-publisher-node-in-python-ros2
-        euclidean_distance = sqrt(pow(self.goal_pose.x - self.current_pose.pose.pose.position.x, 2) +
-                                   pow(self.goal_pose.y - self.current_pose.pose.pose.position.y, 2))
-        
-        goal_angle = atan2(self.goal_pose.y - self.current_pose.pose.pose.position.y,
-                           self.goal_pose.x - self.current_pose.pose.pose.position.x)
+        #https://github.com/pal-robotics/object_recognition_clusters/blob/master/src/object_recognition_clusters/convert_functions.py
+        try:
+            transformed_goal = self.tf_buffer.transform(goal_point, 'base_link', timeout=rclpy.duration.Duration(seconds=1))
+            euclidean_distance = sqrt(pow(transformed_goal.point.x, 2) + pow(transformed_goal.point.y, 2))
+            angle_to_goal = atan2(transformed_goal.point.y, transformed_goal.point.x)
 
-        orientation = self.current_pose.pose.pose.orientation
-        quaternion = [orientation.x, orientation.y, orientation.z, orientation.w]
-        #print(quaternion)
+            linear_gain = self.get_parameter('linear_gain').get_parameter_value().double_value
+            angular_gain = self.get_parameter('angular_gain').get_parameter_value().double_value
 
-        roll, pitch, yaw = euler_from_quaternion(quaternion)
-        
-        angle_to_goal = shortest_angular_distance(goal_angle, yaw)
+            velocity_msg = TwistStamped()
+            velocity_msg.twist.linear.x = min(linear_gain * euclidean_distance, 0.1)
+            velocity_msg.twist.angular.z = angular_gain * angle_to_goal
 
-        linear_gain = self.get_parameter('linear_gain').get_parameter_value().double_value
-        angular_gain = self.get_parameter('angular_gain').get_parameter_value().double_value
+            self.publisher_.publish(velocity_msg)
 
-        velocity_msg = TwistStamped()
-        velocity_msg.twist.linear.x = min(linear_gain * euclidean_distance, 0.1)
-        velocity_msg.twist.angular.z = -angular_gain * angle_to_goal
-        
-        self.publisher_.publish(velocity_msg)
-        #print(f"Current Pose: {self.current_pose.pose.pose.position}")
-        #print(f"Goal Pose: {self.goal_pose}")
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            self.get_logger().warn(f"Transformation failed: {e}")
 
 def main(args=None):
     rclpy.init(args=args)
